@@ -9,7 +9,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Unzip project
-        run: unzip -q ledgerra-android.zip
+        run: |
+          set -e
+          Z=""
+          for z in *.zip; do if unzip -l "$z" | grep -q capacitor.config.json; then Z="$z"; break; fi; done
+          test -n "$Z" || { echo "upload the project zip first"; exit 1; }
+          unzip -q -o "$Z" -d proj
+          C=$(find proj -name capacitor.config.json -not -path '*/node_modules/*' | head -1)
+          echo "APP=$GITHUB_WORKSPACE/$(dirname "$C")" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -19,13 +26,13 @@ jobs:
           java-version: 21
       - uses: android-actions/setup-android@v3
       - name: Build
-        working-directory: ledgerra-android
+        working-directory: ${{ env.APP }}
         run: |
           npm install --no-audit --no-fund
           npm run android:prepare
           cd android && ./gradlew assembleRelease --no-daemon
       - name: Sign
-        working-directory: ledgerra-android
+        working-directory: ${{ env.APP }}
         env:
           KS_B64: ${{ secrets.LEDGERRA_KEYSTORE_B64 }}
           KS_PASS: ${{ secrets.LEDGERRA_KEYSTORE_PASSWORD }}
@@ -37,8 +44,8 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           VER=$(node -p "require('./package.json').version")
           "$BT/zipalign" -p -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/a.apk"
-          "$BT/apksigner" sign --ks "$RUNNER_TEMP/k.jks" --ks-key-alias ledgerra --ks-pass env:KS_PASS --key-pass env:KS_PASS --out "../ledgerra-$VER.apk" "$RUNNER_TEMP/a.apk"
-          "$BT/apksigner" verify "../ledgerra-$VER.apk"
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/k.jks" --ks-key-alias ledgerra --ks-pass env:KS_PASS --key-pass env:KS_PASS --out "$GITHUB_WORKSPACE/ledgerra-$VER.apk" "$RUNNER_TEMP/a.apk"
+          "$BT/apksigner" verify "$GITHUB_WORKSPACE/ledgerra-$VER.apk"
           rm -f "$RUNNER_TEMP/k.jks" "$RUNNER_TEMP/a.apk"
       - uses: actions/upload-artifact@v4
         with:
